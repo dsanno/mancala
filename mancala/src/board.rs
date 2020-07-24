@@ -1,11 +1,10 @@
-use std::convert::TryFrom;
-
 pub const PLAYER_NUM: usize = 2;
 pub const PIT_NUM: usize = 6;
 
 const PIT_BIT_NUM: usize = 8;
 const PIT_BIT_MASK: i64 = 0xff;
 const INITIAL_SEEDS: i64 = 0x040404040404;
+const EMPTY_SEEDS: i64 = 0;
 const MAX_SEED_NUM: usize = 48;
 const HISTORY_SIZE: usize = MAX_SEED_NUM * 3;
 const SOW_CYCLE_SIZE: usize = PIT_NUM * 2 + 1;
@@ -155,17 +154,30 @@ impl BoardState {
         if seed_diff == 0 {
             return Err(());
         }
-        let opponent = opponent_turn(self.turn);
 
-        self.seed_states[self.turn as usize] += SEED_DIFFS[diff_index];
-        self.seed_states[opponent as usize] += OPPONENT_SEED_DIFFS[diff_index];
-        self.stores[self.turn as usize] += STORE_DIFFS[diff_index];
+        let opponent = opponent_turn(self.turn);
+        let current_turn_index = self.turn as usize;
+        let opponent_turn_index = opponent as usize;
+
+        self.seed_states[current_turn_index] += SEED_DIFFS[diff_index];
+        self.seed_states[opponent_turn_index] += OPPONENT_SEED_DIFFS[diff_index];
+        self.stores[current_turn_index] += STORE_DIFFS[diff_index];
         let last_index = (index + seed_num) % SOW_CYCLE_SIZE;
         if last_index < PIT_NUM && self.seed(self.turn, last_index) == 1 {
             let opponent_index = PIT_NUM - last_index - 1;
-            self.stores[self.turn as usize] += self.seed(self.turn, last_index) + self.seed(opponent, opponent_index);
-            self.seed_states[self.turn as usize] &= !(PIT_BIT_MASK << (last_index * PIT_BIT_NUM));
-            self.seed_states[opponent as usize] &= !(PIT_BIT_MASK << (opponent_index * PIT_BIT_NUM));
+            if self.seed(opponent, opponent_index) > 0 {
+                self.stores[current_turn_index] += self.seed(self.turn, last_index) + self.seed(opponent, opponent_index);
+                self.seed_states[current_turn_index] &= !(PIT_BIT_MASK << (last_index * PIT_BIT_NUM));
+                self.seed_states[opponent_turn_index] &= !(PIT_BIT_MASK << (opponent_index * PIT_BIT_NUM));
+            }
+        }
+        let first_seed_states = self.seed_states[Turn::First as usize];
+        let second_seed_states = self.seed_states[Turn::Second as usize];
+        if first_seed_states == 0 || second_seed_states == 0 {
+            self.stores[Turn::First as usize] += sum_seeds(first_seed_states);
+            self.stores[Turn::Second as usize] +=  sum_seeds(second_seed_states);
+            self.seed_states[Turn::First as usize] = EMPTY_SEEDS;
+            self.seed_states[Turn::Second as usize] = EMPTY_SEEDS;
         }
         if last_index != PIT_NUM {
             self.turn = opponent;
@@ -206,6 +218,10 @@ impl Board {
         From::from(self.state.seed_states[turn as usize].to_le_bytes()[index])
     }
 
+    pub fn is_over(&self) -> bool {
+        self.state.seed_states[Turn::First as usize] == 0 || self.state.seed_states[Turn::Second as usize] == 0
+    }
+
     pub fn play(&mut self, index: usize) -> Result<(), ()> {
         self.history.push(self.state);
         let result = self.state.play(index);
@@ -236,9 +252,15 @@ pub fn opponent_turn(turn: Turn) -> Turn {
 }
 
 
+fn sum_seeds(seed_state: i64) -> isize {
+    seed_state.to_le_bytes().iter().sum::<u8>() as isize
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::convert::TryFrom;
 
     fn assert_board(board: &Board, turn: Turn, stores: [isize; PLAYER_NUM], first_seeds: [isize; PIT_NUM],
                     second_seeds: [isize; PIT_NUM]){
@@ -253,6 +275,24 @@ mod tests {
             let actual = board.seed(Turn::Second, i);
             let expected = second_seeds[i];
             assert_eq!(actual, expected, "second player's {}th seeds is expected {} but acturally {}", i, expected, actual);
+        }
+    }
+
+    fn create_board(turn: Turn, stores: [isize; PLAYER_NUM], first_seeds: [isize; PIT_NUM],
+                    second_seeds: [isize; PIT_NUM]) -> Board {
+        let mut first_seeds_bytes: [u8; 8] = [0; 8];
+        let mut second_seeds_bytes: [u8; 8] = [0; 8];
+        for i in 0..PIT_NUM {
+            first_seeds_bytes[i] = u8::try_from(first_seeds[i]).unwrap();
+            second_seeds_bytes[i] = u8::try_from(second_seeds[i]).unwrap();
+        }
+        Board {
+            state: BoardState {
+                turn: turn,
+                stores: stores,
+                seed_states: [i64::from_le_bytes(first_seeds_bytes), i64::from_le_bytes(second_seeds_bytes)],
+            },
+            ..Default::default()
         }
     }
 
@@ -350,6 +390,25 @@ mod tests {
     }
 
     #[test]
+    fn play_does_not_capture_if_counterpart_of_last_pit_is_empty() {
+        let mut board: Board = Default::default();
+        let result = board.play(5);
+
+        assert_eq!(result, Ok(()));
+        assert_board(&board, Turn::Second, [1, 0], [4, 4, 4, 4, 4, 0], [5, 5, 5, 4, 4, 4]);
+
+        let result = board.play(0);
+
+        assert_eq!(result, Ok(()));
+        assert_board(&board, Turn::First, [1, 0], [4, 4, 4, 4, 4, 0], [0, 6, 6, 5, 5, 5]);
+
+        let result = board.play(1);
+
+        assert_eq!(result, Ok(()));
+        assert_board(&board, Turn::Second, [1, 0], [4, 0, 5, 5, 5, 1], [0, 6, 6, 5, 5, 5]);
+    }
+
+    #[test]
     fn undo_reverses_board_state_by_one_move() {
         let mut board: Board = Default::default();
         let result = board.play(3);
@@ -361,5 +420,17 @@ mod tests {
 
         assert_eq!(result, Ok(()));
         assert_board(&board, Turn::First, [0, 0], [4, 4, 4, 4, 4, 4], [4, 4, 4, 4, 4, 4]);
+    }
+
+    #[test]
+    fn game_ends_when_either_side_has_no_seed() {
+        let mut board = create_board(Turn::First, [0, 0], [0, 0, 0, 0, 0, 1], [0, 0, 0, 0, 0, 1]);
+
+        assert_board(&board, Turn::First, [0, 0], [0, 0, 0, 0, 0, 1], [0, 0, 0, 0, 0, 1]);
+
+        let result = board.play(5);
+
+        assert_eq!(board.is_over(), true);
+        assert_board(&board, Turn::First, [1, 1], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0]);
     }
 }
