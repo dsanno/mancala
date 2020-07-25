@@ -135,24 +135,16 @@ impl Default for BoardState {
 }
 
 impl BoardState {
-    pub fn turn(&self) -> Turn {
-        self.turn
-    }
-
-    pub fn store(&self, turn: Turn) -> isize {
-        self.stores[turn as usize]
-    }
-
     pub fn seed(&self, turn: Turn, index: usize) -> isize {
         From::from(self.seed_states[turn as usize].to_le_bytes()[index])
     }
 
-    pub fn play(&mut self, index: usize) -> Result<(), ()> {
+    pub fn play(&mut self, index: usize) -> Option<()> {
         let seed_num = self.seed(self.turn, index) as usize;
         let diff_index = index * (MAX_SEED_NUM + 1) + seed_num;
         let seed_diff = SEED_DIFFS[diff_index];
         if seed_diff == 0 {
-            return Err(());
+            return None;
         }
 
         let opponent = opponent_turn(self.turn);
@@ -182,7 +174,7 @@ impl BoardState {
         if last_index != PIT_NUM {
             self.turn = opponent;
         }
-        Ok(())
+        Some(())
     }
 }
 
@@ -222,23 +214,27 @@ impl Board {
         self.state.seed_states[Turn::First as usize] == 0 || self.state.seed_states[Turn::Second as usize] == 0
     }
 
-    pub fn play(&mut self, index: usize) -> Result<(), ()> {
+    pub fn play(&mut self, index: usize) -> Option<()> {
         self.history.push(self.state);
         let result = self.state.play(index);
-        if let Err(_) = result {
+        if let None = result {
             self.history.pop();
         }
         result
     }
 
-    pub fn undo(&mut self) -> Result<(), ()> {
+    pub fn undo(&mut self) -> Option<()> {
         match self.history.pop() {
             Some(state) => {
                 self.state = state;
-                Ok(())
+                Some(())
             },
-            None => Err(()),
+            None => None,
         }
+    }
+
+    pub(crate) fn seed_states(&self) -> [i64; PLAYER_NUM] {
+        self.state.seed_states
     }
 }
 
