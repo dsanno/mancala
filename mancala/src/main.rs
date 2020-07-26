@@ -1,22 +1,32 @@
 extern crate mancala;
 use mancala::board;
 use mancala::engine::com;
+use mancala::engine::evaluator;
 use mancala::engine::position_map;
 
 
+const EVALUATION_FILE_PATH: &str = "eval.dat";
 const POSITION_FILE_PATH: &str = "position.dat";
 
 fn main() {
-    self_play(10000);
-//    play();
+    play(16);
+//    self_play(30000, 12);
 }
 
-fn play() {
-    let depth = 12;
-    let max_score = 48;
+fn play(depth: isize) {
     let position_map = match position_map::PositionMap::load(POSITION_FILE_PATH) {
         Ok(position_map) => position_map,
-        Err(_) => Default::default(),
+        Err(_) => {
+            println!("Warning: cannot load position file");
+            Default::default()
+        },
+    };
+    let evaluator = match evaluator::Evaluator::load(EVALUATION_FILE_PATH) {
+        Ok(evaluator) => evaluator,
+        Err(_) => {
+            println!("Cannot load evaluation file");
+            std::process::exit(1);
+        },
     };
     loop {
         let mut b: board::Board = Default::default();
@@ -47,18 +57,16 @@ fn play() {
 
             while b.turn() != player_turn && !b.is_over() {
                 print_board(&b, player_turn);
-                let (pos, value) = if let com::Move(Some(pos), value) = com::search_position_map(&mut b, &position_map, false) {
-                    (pos, value)
-                } else if let com::Move(Some(pos), value) = com::search(&mut b, depth, -max_score, max_score) {
-                    (pos, value)
+                if let com::Move(Some(pos), value) = com::find_best_move(&mut b, depth, &evaluator, &position_map, false) {
+                    println!("Com plays {}, value is {}", pos + 1, value);
+                    if let None = b.play(pos) {
+                        println!("Unknown error");
+                        std::process::exit(1);
+                    }
                 } else {
                     println!("Unknown error");
                     std::process::exit(1);
-                };
-                println!("Com plays {}, value is {}", pos + 1, value);
-                if let None = b.play(pos) {
-                    println!("Unknown error");
-                    std::process::exit(1);
+
                 }
             }
             if b.is_over() {
@@ -68,27 +76,29 @@ fn play() {
     }
 }
 
-fn self_play(num: isize) {
-    let depth = 10;
-    let max_score = 48;
+fn self_play(num: isize, depth: isize) {
     let mut position_map = match position_map::PositionMap::load(POSITION_FILE_PATH) {
         Ok(position_map) => position_map,
         Err(_) => Default::default(),
     };
+    let evaluator = match evaluator::Evaluator::load(EVALUATION_FILE_PATH) {
+        Ok(evaluator) => evaluator,
+        Err(_) => {
+            println!("Cannot load evaluation file");
+            std::process::exit(1);
+        },
+    };
     for i in 0..num {
         let mut b: board::Board = Default::default();
         while !b.is_over() {
-            let pos = if let com::Move(Some(pos), _) = com::search_position_map(&mut b, &position_map, true) {
-                pos
-            } else if let com::Move(Some(pos), _) = com::search(&mut b, depth, -max_score, max_score) {
-                pos
+            if let com::Move(Some(pos), _) = com::find_best_move(&mut b, depth, &evaluator, &position_map, true) {
+                b.play(pos);
             } else {
                 println!("Unknown error");
                 std::process::exit(1);
-            };
-            b.play(pos);
+            }
         }
-        let value = b.store(board::Turn::First) - b.store(board::Turn::Second);
+        let value = (b.store(board::Turn::First) - b.store(board::Turn::Second)) * evaluator::VALUE_PER_SEED;
         for _ in 0..6 {
             b.undo();
         }

@@ -7,6 +7,7 @@ use std::io::Write;
 
 use crate::board;
 use crate::board::Board;
+use super::evaluator;
 
 #[derive(PartialEq, Eq, Hash)]
 pub struct PositionKey(i64, i64);
@@ -61,7 +62,7 @@ impl PositionMap {
         let mut reader = BufReader::new(File::open(file_path)?);
 
         let mut buffer = [0; 8];
-        reader.read(&mut buffer)?;
+        reader.read_exact(&mut buffer)?;
         let header = PositionFileHeader::from_le_bytes(&buffer);
 
         let mut position_map = HashMap::with_capacity(header.record_num as usize);
@@ -104,7 +105,7 @@ impl PositionMap {
         let key = PositionKey(seed_states[turn as usize], seed_states[opponent as usize]);
         if let Some(value) = position_map.get(&key) {
             Some(PositionValue {
-                value: value.value + (board.store(turn) - board.store(opponent)) as i32,
+                value: value.value + ((board.store(turn) - board.store(opponent)) * evaluator::VALUE_PER_SEED)  as i32,
                 visit: value.visit,
             })
         } else {
@@ -124,7 +125,7 @@ impl PositionMap {
             0
         };
         let position_value = PositionValue {
-            value: (value - board.store(turn) + board.store(opponent)) as i32,
+            value: (value - (board.store(turn) - board.store(opponent)) * evaluator::VALUE_PER_SEED) as i32,
             visit: visit + 1,
         };
         position_map.insert(key, position_value);
