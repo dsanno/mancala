@@ -1,16 +1,95 @@
+#[macro_use]
+extern crate clap;
+use clap::App;
+use clap::AppSettings;
+use clap::Arg;
+use clap::SubCommand;
+
 extern crate mancala;
 use mancala::board;
 use mancala::engine::com;
 use mancala::engine::evaluator;
 use mancala::engine::position_map;
 
-
 const EVALUATION_FILE_PATH: &str = "eval.dat";
 const POSITION_FILE_PATH: &str = "position.dat";
 
+const SUB_COMMAND_PLAY: &str = "play";
+const ABOUT_PLAY: &str = "Play with computer";
+
+const SUB_COMMAND_SELF_PLAY: &str = "self";
+const ABOUT_SELF_PLAY: &str = "Computer starts self playing";
+
+const ARG_DEPTH: &str = "depth";
+const HELP_DEPTH: &str = "Depth of com player thinking (2-20)";
+const ERROR_DEPTH_TYPE: &str = "Depth must be an integer";
+const ERROR_DEPTH_RANGE: &str = "Depth must be in the range of 2 to 20";
+const MIN_DEPTH: isize = 2;
+const MAX_DEPTH: isize = 20;
+
+const ARG_SELF_PLAY_NUM: &str = "self_play_num";
+const HELP_SELF_PLAY_NUM: &str = "Number of self play";
+const ERROR_SELF_PLAY_NUM_TYPE: &str = "Number of self play must be an integer";
+
+enum Command {
+    Undo,
+    Quit,
+    Number(usize),
+}
+
 fn main() {
-    play(16);
-//    self_play(30000, 12);
+    let play_command = SubCommand::with_name(SUB_COMMAND_PLAY)
+        .about(ABOUT_PLAY)
+        .arg(
+            Arg::with_name(ARG_DEPTH)
+                .help(HELP_DEPTH)
+                .required(true)
+        );
+    let self_command = SubCommand::with_name(SUB_COMMAND_SELF_PLAY)
+        .about(ABOUT_SELF_PLAY)
+        .arg(
+            Arg::with_name(ARG_DEPTH)
+                .help(HELP_DEPTH)
+                .required(true)
+        )
+        .arg(
+            Arg::with_name(ARG_SELF_PLAY_NUM)
+                .help(HELP_SELF_PLAY_NUM)
+                .required(true)
+        );
+    let app = App::new(crate_name!())
+        .setting(AppSettings::ArgRequiredElseHelp)
+        .version(crate_version!())
+        .author(crate_authors!())
+        .subcommand(play_command)
+        .subcommand(self_command);
+
+    let matches = app.get_matches();
+    if let Some(ref matches) = matches.subcommand_matches(SUB_COMMAND_PLAY) {
+        let depth = value_t!(matches.value_of(ARG_DEPTH), isize).unwrap_or_else(|e| {
+            println!("{}", ERROR_DEPTH_TYPE);
+            e.exit();
+        });
+        if depth < MIN_DEPTH || depth > MAX_DEPTH {
+            println!("{}", ERROR_DEPTH_RANGE);
+            std::process::exit(1);
+        }
+        play(depth);
+    } else if let Some(ref matches) = matches.subcommand_matches(SUB_COMMAND_SELF_PLAY) {
+        let depth = value_t!(matches.value_of(ARG_DEPTH), isize).unwrap_or_else(|e| {
+            println!("{}", ERROR_DEPTH_TYPE);
+            e.exit();
+        });
+        let self_play_num = value_t!(matches.value_of(ARG_SELF_PLAY_NUM), usize).unwrap_or_else(|e| {
+            println!("{}", ERROR_SELF_PLAY_NUM_TYPE);
+            e.exit();
+        });
+        if depth < MIN_DEPTH || depth > MAX_DEPTH {
+            println!("{}", ERROR_DEPTH_RANGE);
+            std::process::exit(1);
+        }
+        self_play(self_play_num, depth);
+    }
 }
 
 fn play(depth: isize) {
@@ -24,39 +103,58 @@ fn play(depth: isize) {
     let evaluator = match evaluator::Evaluator::load(EVALUATION_FILE_PATH) {
         Ok(evaluator) => evaluator,
         Err(_) => {
-            println!("Cannot load evaluation file");
-            std::process::exit(1);
+            println!("Warning: cannot load position file");
+            evaluator::Evaluator::new()
         },
     };
     loop {
         let mut b: board::Board = Default::default();
-        let player_turn = board::Turn::First;
-
+        let player_turn;
+        loop {
+            println!("Input 1 for first player or 2 for second player");
+            match read_command() {
+                Some(Command::Number(1)) => {
+                    player_turn = board::Turn::First;
+                    break;
+                },
+                Some(Command::Number(2)) => {
+                    player_turn = board::Turn::Second;
+                    break;
+                },
+                _ => {
+                    println!("Invalid input");
+                },
+            }
+        }
         loop {
             while b.turn() == player_turn && !b.is_over() {
                 print_board(&b, player_turn);
-                println!("Your turn");
-                match read_number() {
-                    Ok(n) => {
-                        if n == 0 {
+                println!("Your turn, input 1-{}", board::PIT_NUM);
+                match read_command() {
+                    Some(Command::Quit) => {
+                        println!("Thank you for playing");
+                        return ();
+                    },
+                    Some(Command::Undo) => {
+                        b.undo();
+                        while b.turn() != player_turn {
                             b.undo();
-                            while b.turn() != player_turn {
-                                b.undo();
-                            }
-                        } else if n >= board::PIT_NUM + 1 {
+                        }
+                    },
+                    Some(Command::Number(n)) => {
+                        if  n >= board::PIT_NUM + 1 {
                             println!("{} is invalid number for move", n);
                         } else if let None = b.play(n - 1) {
                             println!("{} is invalid move", n);
                         }
                     },
-                    Err(message) => {
-                        println!("{}", message);
-                    },
+                    _ => println!("Invalid command"),
                 }
             }
 
             while b.turn() != player_turn && !b.is_over() {
                 print_board(&b, player_turn);
+                println!("Com is thinking");
                 if let com::Move(Some(pos), value) = com::find_best_move(&mut b, depth, &evaluator, &position_map, false) {
                     println!("Com plays {}, value is {}", pos + 1, value);
                     if let None = b.play(pos) {
@@ -70,13 +168,22 @@ fn play(depth: isize) {
                 }
             }
             if b.is_over() {
+                print_board(&b, player_turn);
+                let opponent = board::opponent_turn(player_turn);
+                if b.store(player_turn) > b.store(opponent) {
+                    println!("You win!");
+                } else if b.store(opponent) > b.store(player_turn) {
+                    println!("Com win!");
+                } else {
+                    println!("Draw!");
+                }
                 break;
             }
         }
     }
 }
 
-fn self_play(num: isize, depth: isize) {
+fn self_play(num: usize, depth: isize) {
     let mut position_map = match position_map::PositionMap::load(POSITION_FILE_PATH) {
         Ok(position_map) => position_map,
         Err(_) => Default::default(),
@@ -84,8 +191,8 @@ fn self_play(num: isize, depth: isize) {
     let evaluator = match evaluator::Evaluator::load(EVALUATION_FILE_PATH) {
         Ok(evaluator) => evaluator,
         Err(_) => {
-            println!("Cannot load evaluation file");
-            std::process::exit(1);
+            println!("Warning: cannot load position file");
+            evaluator::Evaluator::new()
         },
     };
     for i in 0..num {
@@ -128,14 +235,20 @@ fn self_play(num: isize, depth: isize) {
     }
 }
 
-fn read_number() -> Result<usize, String> {
+fn read_command() -> Option<Command> {
     let mut line = String::new();
     if let Err(_) = std::io::stdin().read_line(&mut line) {
-        return Err(String::from("Cannot read line"));
+        return None;
     }
-    match line.trim().parse() {
-        Ok(n) => Ok(n),
-        Err(_) => Err(String::from("Input is not a number")),
+    match line.trim() {
+        "q" => Some(Command::Quit),
+        "quit" => Some(Command::Quit),
+        "u" => Some(Command::Undo),
+        "undo" => Some(Command::Undo),
+        s => match s.parse() {
+            Ok(n) => Some(Command::Number(n)),
+            _ => None,
+        }
     }
 }
 
