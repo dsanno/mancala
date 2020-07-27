@@ -22,7 +22,7 @@ or `$ cargo build` if you want debug build binary.
 
 ## Play with computer player
 
-1. Download [a released binary](../release) and copy `eval.dat` and `position.dat` from it to `mancala` directory (which has `Cargo.toml`).
+1. Download [a released binary](../../release) and copy `eval.dat` and `position.dat` from it to `mancala` directory (which has `Cargo.toml`).
 2. Run commands as follows
 ```
 $ cd mancala
