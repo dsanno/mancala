@@ -61,13 +61,18 @@ def load_patterns(file_path):
     values = []
     with open(file_path, 'rb') as f:
         _, record_num = struct.unpack('<ii', f.read(8))
-        for _ in range(record_num):
+        for i in range(record_num):
             raw_bytes = f.read(24)
             seeds = struct.unpack('BBBBBBBBBBBBBBBB', raw_bytes[0:16])
-            value, _ = struct.unpack('<ii', raw_bytes[16:24])
+            value, visit = struct.unpack('<ii', raw_bytes[16:24])
+            if visit < 10 and np.random.random() * 10 >= visit:
+                continue
             pattern = make_pattern(np.array(seeds[0:6], dtype=np.int32), np.array(seeds[8:14], dtype=np.int32))
             patterns.append(pattern)
             values.append([value])
+            if (i + 1) % 10000 == 0:
+                print('{} / {} loaded'.format(i + 1, record_num))
+        print('number of positions:', len(values))
     return torch.LongTensor(patterns), torch.tensor(values, dtype=torch.float32)
 
 

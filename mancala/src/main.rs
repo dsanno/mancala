@@ -20,6 +20,9 @@ const ABOUT_PLAY: &str = "Play with computer";
 const SUB_COMMAND_SELF_PLAY: &str = "self";
 const ABOUT_SELF_PLAY: &str = "Computer starts self playing";
 
+const SUB_COMMAND_EVALUATE: &str = "eval";
+const ABOUT_EVALUATE: &str = "Evaluate moves";
+
 const ARG_DEPTH: &str = "depth";
 const HELP_DEPTH: &str = "Depth of com player thinking (2-20)";
 const ERROR_DEPTH_TYPE: &str = "Depth must be an integer";
@@ -30,6 +33,9 @@ const MAX_DEPTH: isize = 20;
 const ARG_SELF_PLAY_NUM: &str = "self_play_num";
 const HELP_SELF_PLAY_NUM: &str = "Number of self play";
 const ERROR_SELF_PLAY_NUM_TYPE: &str = "Number of self play must be an integer";
+
+const ARG_EVALUATE_DEPTH: &str = "evaluation_depth";
+const HELP_EVALUATE_DEPTH: &str = "Depth of evaluation (2-20)";
 
 enum Command {
     Undo,
@@ -57,12 +63,20 @@ fn main() {
                 .help(HELP_SELF_PLAY_NUM)
                 .required(true)
         );
-    let app = App::new(crate_name!())
+    let evaluate_command = SubCommand::with_name(SUB_COMMAND_EVALUATE)
+        .about(ABOUT_EVALUATE)
+        .arg(
+            Arg::with_name(ARG_EVALUATE_DEPTH)
+                .help(HELP_EVALUATE_DEPTH)
+                .required(true)
+        );
+let app = App::new(crate_name!())
         .setting(AppSettings::ArgRequiredElseHelp)
         .version(crate_version!())
         .author(crate_authors!())
         .subcommand(play_command)
-        .subcommand(self_command);
+        .subcommand(self_command)
+        .subcommand(evaluate_command);
 
     let matches = app.get_matches();
     if let Some(ref matches) = matches.subcommand_matches(SUB_COMMAND_PLAY) {
@@ -89,6 +103,16 @@ fn main() {
             std::process::exit(1);
         }
         self_play(self_play_num, depth);
+    } else if let Some(ref matches) = matches.subcommand_matches(SUB_COMMAND_EVALUATE) {
+        let depth = value_t!(matches.value_of(ARG_EVALUATE_DEPTH), isize).unwrap_or_else(|e| {
+            println!("{}", ERROR_DEPTH_TYPE);
+            e.exit();
+        });
+        if depth < MIN_DEPTH || depth > MAX_DEPTH {
+            println!("{}", ERROR_DEPTH_RANGE);
+            std::process::exit(1);
+        }
+        evaluate(depth);
     }
 }
 
@@ -183,6 +207,68 @@ fn play(depth: isize) {
     }
 }
 
+fn evaluate(depth: isize) {
+    let position_map = match position_map::PositionMap::load(POSITION_FILE_PATH) {
+        Ok(position_map) => position_map,
+        Err(_) => {
+            println!("Warning: cannot load position file");
+            Default::default()
+        },
+    };
+    let evaluator = match evaluator::Evaluator::load(EVALUATION_FILE_PATH) {
+        Ok(evaluator) => evaluator,
+        Err(_) => {
+            println!("Warning: cannot load position file");
+            evaluator::Evaluator::new()
+        },
+    };
+    loop {
+        let mut b: board::Board = Default::default();
+        loop {
+            print_board(&b, board::Turn::First);
+            if !b.is_over() {
+                let turn = b.turn();
+                println!("Move values:");
+                for pos in 0..board::PIT_NUM {
+                    if let None = b.play(pos) {
+                        continue;
+                    }
+                    if let com::Move(Some(_), value) = com::find_best_move(&mut b, depth - 1, &evaluator, &position_map, false) {
+                        if b.turn() == turn {
+                            println!("{}: {}", pos + 1, value)
+                        } else {
+                            println!("{}: {}", pos + 1, -value)
+                        }
+                    }
+                    b.undo();
+                }
+            }
+            if b.turn() == board::Turn::First {
+                println!("South to play, input 1-{}", board::PIT_NUM);
+            } else {
+                println!("North to play, input 1-{}", board::PIT_NUM);
+            }
+            match read_command() {
+                Some(Command::Quit) => {
+                    println!("Thank you for playing");
+                    return ();
+                },
+                Some(Command::Undo) => {
+                    b.undo();
+                },
+                Some(Command::Number(n)) => {
+                    if  n >= board::PIT_NUM + 1 {
+                        println!("{} is invalid number for move", n);
+                    } else if let None = b.play(n - 1) {
+                        println!("{} is invalid move", n);
+                    }
+                },
+                _ => println!("Invalid command"),
+            }
+        }
+    }
+}
+
 fn self_play(num: usize, depth: isize) {
     let mut position_map = match position_map::PositionMap::load(POSITION_FILE_PATH) {
         Ok(position_map) => position_map,
@@ -197,17 +283,32 @@ fn self_play(num: usize, depth: isize) {
     };
     for i in 0..num {
         let mut b: board::Board = Default::default();
+        let mut move_stack: Vec<usize> = Vec::new();
         while !b.is_over() {
             if let com::Move(Some(pos), _) = com::find_best_move(&mut b, depth, &evaluator, &position_map, true) {
                 b.play(pos);
+                move_stack.push(pos);
             } else {
                 println!("Unknown error");
                 std::process::exit(1);
             }
         }
         let value = (b.store(board::Turn::First) - b.store(board::Turn::Second)) * evaluator::VALUE_PER_SEED;
-        for _ in 0..6 {
-            b.undo();
+        loop {
+            if let None = b.undo() {
+                break;
+            }
+            let previous_move = move_stack.pop().unwrap();
+            if let Some(_) = position_map.get(&b) {
+                b.play(previous_move);
+                if b.turn() == board::Turn::First {
+                    position_map.insert(&b, value);
+                } else {
+                    position_map.insert(&b, -value);
+                }
+                b.undo();
+                break;
+            }
         }
         loop {
             if b.turn() == board::Turn::First {
@@ -219,10 +320,10 @@ fn self_play(num: usize, depth: isize) {
                 break
             }
         }
-        if (i + 1) % 100 == 0 {
+        if (i + 1) % 1000 == 0 {
             println!("{} games done", i + 1);
         }
-        if (i + 1) % 100 == 0 {
+        if (i + 1) % 10000 == 0 {
             match position_map.save(POSITION_FILE_PATH) {
                 Ok(_) => (),
                 Err(_) => println!("Cannot save position map"),
