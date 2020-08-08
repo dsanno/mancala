@@ -331,7 +331,7 @@ mod tests {
         let mut board: Board = Default::default();
         let result = board.play(0);
 
-        assert_eq!(result, Ok(()));
+        assert_eq!(result, Some(()));
         assert_board(&board, Turn::Second, [0, 0], [0, 5, 5, 5, 5, 4], [4, 4, 4, 4, 4, 4]);
     }
 
@@ -340,7 +340,7 @@ mod tests {
         let mut board: Board = Default::default();
         let result = board.play(3);
 
-        assert_eq!(result, Ok(()));
+        assert_eq!(result, Some(()));
         assert_board(&board, Turn::Second, [1, 0], [4, 4, 4, 0, 5, 5], [5, 4, 4, 4, 4, 4]);
     }
 
@@ -349,7 +349,7 @@ mod tests {
         let mut board: Board = Default::default();
         let result = board.play(2);
 
-        assert_eq!(result, Ok(()));
+        assert_eq!(result, Some(()));
         assert_board(&board, Turn::First, [1, 0], [4, 4, 0, 5, 5, 5], [4, 4, 4, 4, 4, 4]);
     }
 
@@ -358,11 +358,11 @@ mod tests {
         let mut board: Board = Default::default();
         let result = board.play(2);
 
-        assert_eq!(result, Ok(()));
+        assert_eq!(result, Some(()));
 
         let result = board.play(2);
 
-        assert_eq!(result, Err(()));
+        assert_eq!(result, None);
         assert_board(&board, Turn::First, [1, 0], [4, 4, 0, 5, 5, 5], [4, 4, 4, 4, 4, 4]);
     }
 
@@ -371,17 +371,17 @@ mod tests {
         let mut board: Board = Default::default();
         let result = board.play(5);
 
-        assert_eq!(result, Ok(()));
+        assert_eq!(result, Some(()));
         assert_board(&board, Turn::Second, [1, 0], [4, 4, 4, 4, 4, 0], [5, 5, 5, 4, 4, 4]);
 
         let result = board.play(5);
 
-        assert_eq!(result, Ok(()));
+        assert_eq!(result, Some(()));
         assert_board(&board, Turn::First, [1, 1], [5, 5, 5, 4, 4, 0], [5, 5, 5, 4, 4, 0]);
 
         let result = board.play(0);
 
-        assert_eq!(result, Ok(()));
+        assert_eq!(result, Some(()));
         assert_board(&board, Turn::Second, [7, 1], [0, 6, 6, 5, 5, 0], [0, 5, 5, 4, 4, 0]);
     }
 
@@ -390,17 +390,17 @@ mod tests {
         let mut board: Board = Default::default();
         let result = board.play(5);
 
-        assert_eq!(result, Ok(()));
+        assert_eq!(result, Some(()));
         assert_board(&board, Turn::Second, [1, 0], [4, 4, 4, 4, 4, 0], [5, 5, 5, 4, 4, 4]);
 
         let result = board.play(0);
 
-        assert_eq!(result, Ok(()));
+        assert_eq!(result, Some(()));
         assert_board(&board, Turn::First, [1, 0], [4, 4, 4, 4, 4, 0], [0, 6, 6, 5, 5, 5]);
 
         let result = board.play(1);
 
-        assert_eq!(result, Ok(()));
+        assert_eq!(result, Some(()));
         assert_board(&board, Turn::Second, [1, 0], [4, 0, 5, 5, 5, 1], [0, 6, 6, 5, 5, 5]);
     }
 
@@ -409,12 +409,12 @@ mod tests {
         let mut board: Board = Default::default();
         let result = board.play(3);
 
-        assert_eq!(result, Ok(()));
+        assert_eq!(result, Some(()));
         assert_board(&board, Turn::Second, [1, 0], [4, 4, 4, 0, 5, 5], [5, 4, 4, 4, 4, 4]);
 
         let result = board.undo();
 
-        assert_eq!(result, Ok(()));
+        assert_eq!(result, Some(()));
         assert_board(&board, Turn::First, [0, 0], [4, 4, 4, 4, 4, 4], [4, 4, 4, 4, 4, 4]);
     }
 
