@@ -198,6 +198,17 @@ impl Board {
         self.history.clear();
     }
 
+    pub fn reset_with_seeds(&mut self, first_seeds: [isize; PIT_NUM], second_seeds: [isize; PIT_NUM]) {
+        let mut first_seeds_bytes: [u8; 8] = [0; 8];
+        let mut second_seeds_bytes: [u8; 8] = [0; 8];
+        for i in 0..PIT_NUM {
+            first_seeds_bytes[i] = first_seeds[i] as u8; // u8::try_from(first_seeds[i]).unwrap();
+            second_seeds_bytes[i] = second_seeds[i] as u8; // u8::try_from(second_seeds[i]).unwrap();
+        }
+        self.reset();
+        self.state.seed_states = [i64::from_le_bytes(first_seeds_bytes), i64::from_le_bytes(second_seeds_bytes)];
+    }
+
     pub fn turn(&self) -> Turn {
         self.state.turn
     }
@@ -428,5 +439,20 @@ mod tests {
 
         assert_eq!(board.is_over(), true);
         assert_board(&board, Turn::First, [1, 1], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn reset_with_seeds_resets_board_with_passed_seeds() {
+        let mut board: Board = Default::default();
+        board.reset_with_seeds([0, 1, 2, 3, 4, 5], [1, 2, 3, 4, 5, 0]);
+
+        assert_board(&board, Turn::First, [0, 0], [0, 1, 2, 3, 4, 5], [1, 2, 3, 4, 5, 0]);
+    }
+
+    #[test]
+    fn undo_failes_right_after_reset_with_seesds() {
+        let mut board: Board = Default::default();
+
+        assert_eq!(board.undo(), None);
     }
 }

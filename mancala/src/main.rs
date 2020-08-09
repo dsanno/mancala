@@ -23,6 +23,9 @@ const ABOUT_SELF_PLAY: &str = "Computer starts self playing";
 const SUB_COMMAND_EVALUATE: &str = "eval";
 const ABOUT_EVALUATE: &str = "Evaluate moves";
 
+const SUB_COMMAND_COMPARE: &str = "comp";
+const ABOUT_COMPARE: &str = "Compare evaluator parameters";
+
 const ARG_DEPTH: &str = "depth";
 const HELP_DEPTH: &str = "Depth of com player thinking (2-20)";
 const ERROR_DEPTH_TYPE: &str = "Depth must be an integer";
@@ -36,6 +39,11 @@ const ERROR_SELF_PLAY_NUM_TYPE: &str = "Number of self play must be an integer";
 
 const ARG_EVALUATE_DEPTH: &str = "evaluation_depth";
 const HELP_EVALUATE_DEPTH: &str = "Depth of evaluation (2-20)";
+
+const ARG_COMPARE_PARAMETER_FILE_1: &str = "parameter_file_1";
+const HELP_COMPARE_PARAMETER_FILE_1: &str = "Evaluator parameter file 1";
+const ARG_COMPARE_PARAMETER_FILE_2: &str = "parameter_file_2";
+const HELP_COMPARE_PARAMETER_FILE_2: &str = "Evaluator parameter file 2";
 
 enum Command {
     Undo,
@@ -70,13 +78,31 @@ fn main() {
                 .help(HELP_EVALUATE_DEPTH)
                 .required(true)
         );
+    let compare_command = SubCommand::with_name(SUB_COMMAND_COMPARE)
+        .about(ABOUT_COMPARE)
+        .arg(
+            Arg::with_name(ARG_DEPTH)
+                .help(HELP_DEPTH)
+                .required(true)
+        )
+        .arg(
+            Arg::with_name(ARG_COMPARE_PARAMETER_FILE_1)
+                .help(HELP_COMPARE_PARAMETER_FILE_1)
+                .required(true)
+        )
+        .arg(
+            Arg::with_name(ARG_COMPARE_PARAMETER_FILE_2)
+                .help(HELP_COMPARE_PARAMETER_FILE_2)
+                .required(true)
+        );
 let app = App::new(crate_name!())
         .setting(AppSettings::ArgRequiredElseHelp)
         .version(crate_version!())
         .author(crate_authors!())
         .subcommand(play_command)
         .subcommand(self_command)
-        .subcommand(evaluate_command);
+        .subcommand(evaluate_command)
+        .subcommand(compare_command);
 
     let matches = app.get_matches();
     if let Some(ref matches) = matches.subcommand_matches(SUB_COMMAND_PLAY) {
@@ -113,6 +139,14 @@ let app = App::new(crate_name!())
             std::process::exit(1);
         }
         evaluate(depth);
+    } else if let Some(ref matches) = matches.subcommand_matches(SUB_COMMAND_COMPARE) {
+        let depth = value_t!(matches.value_of(ARG_DEPTH), isize).unwrap_or_else(|e| {
+            println!("{}", ERROR_DEPTH_TYPE);
+            e.exit();
+        });
+        let parameter_file_1 = matches.value_of(ARG_COMPARE_PARAMETER_FILE_1).unwrap();
+        let parameter_file_2 = matches.value_of(ARG_COMPARE_PARAMETER_FILE_2).unwrap();
+        compare(depth, parameter_file_1, parameter_file_2);
     }
 }
 
@@ -283,32 +317,17 @@ fn self_play(num: usize, depth: isize) {
     };
     for i in 0..num {
         let mut b: board::Board = Default::default();
-        let mut move_stack: Vec<usize> = Vec::new();
         while !b.is_over() {
             if let com::Move(Some(pos), _) = com::find_best_move(&mut b, depth, &evaluator, &position_map, true) {
                 b.play(pos);
-                move_stack.push(pos);
             } else {
                 println!("Unknown error");
                 std::process::exit(1);
             }
         }
         let value = (b.store(board::Turn::First) - b.store(board::Turn::Second)) * evaluator::VALUE_PER_SEED;
-        loop {
-            if let None = b.undo() {
-                break;
-            }
-            let previous_move = move_stack.pop().unwrap();
-            if let Some(_) = position_map.get(&b) {
-                b.play(previous_move);
-                if b.turn() == board::Turn::First {
-                    position_map.insert(&b, value);
-                } else {
-                    position_map.insert(&b, -value);
-                }
-                b.undo();
-                break;
-            }
+        for _ in 0..6 {
+            b.undo();
         }
         loop {
             if b.turn() == board::Turn::First {
@@ -333,6 +352,76 @@ fn self_play(num: usize, depth: isize) {
     match position_map.save(POSITION_FILE_PATH) {
         Ok(_) => (),
         Err(_) => println!("Cannot save position map"),
+    }
+}
+
+fn compare(depth: isize, parameter_file_1: &str, parameter_file_2: &str) {
+    let mut win_sum: isize = 0;
+    let mut score_sum: isize = 0;
+    let mut play_count: isize = 0;
+    let mut board: board::Board = Default::default();
+
+    let position_map: position_map::PositionMap = Default::default();
+    let evaluator_1 = match evaluator::Evaluator::load(parameter_file_1) {
+        Ok(evaluator) => evaluator,
+        Err(_) => {
+            println!("Error: cannot load position file {}", parameter_file_1);
+            std::process::exit(1);
+        },
+    };
+    let evaluator_2 = match evaluator::Evaluator::load(parameter_file_2) {
+        Ok(evaluator) => evaluator,
+        Err(_) => {
+            println!("Error: cannot load position file {}", parameter_file_2);
+            std::process::exit(1);
+        },
+    };
+
+    for i in 0..(board::PIT_NUM * (board::PIT_NUM + 1) + 1) {
+        let mut first_seeds: [isize; board::PIT_NUM] = [4, 4, 4, 4, 4, 4];
+        let mut second_seeds: [isize; board::PIT_NUM] = [4, 4, 4, 4, 4, 4];
+        if i >= 1 && i < board::PIT_NUM + 1 {
+            first_seeds[i - 1] += 1;
+        } else if i >= board::PIT_NUM + 1 {
+            let j = i - board::PIT_NUM - 1;
+            first_seeds[j % board::PIT_NUM] += 1;
+            second_seeds[j / board::PIT_NUM] += 1;
+        }
+        board.reset_with_seeds(first_seeds, second_seeds);
+        self_play_one(&mut board, depth, false, &evaluator_1, &position_map, &evaluator_2, &position_map);
+        let mut score = board.store(board::Turn::First) - board.store(board::Turn::Second);
+        println!("{}-1: {}", play_count + 1, board.store(board::Turn::First) - board.store(board::Turn::Second));
+        board.reset_with_seeds(first_seeds, second_seeds);
+        self_play_one(&mut board, depth, false, &evaluator_2, &position_map, &evaluator_1, &position_map);
+        score += board.store(board::Turn::Second) - board.store(board::Turn::First);
+        println!("{}-1: {}", play_count + 1, board.store(board::Turn::Second) - board.store(board::Turn::First));
+        if score > 0 {
+            win_sum += 2;
+        } else if score == 0 {
+            win_sum += 1;
+        }
+        score_sum += score;
+        play_count += 1;
+    }
+    println!("Winning rate: {}", win_sum as f32 / play_count as f32 * 0.5);
+    println!("average score: {}", score_sum as f32 / play_count as f32 * 0.5);
+}
+
+fn self_play_one(board: &mut board::Board, depth: isize, explore: bool,
+                 evaluator_1: &evaluator::Evaluator, position_map_1: &position_map::PositionMap,
+                 evaluator_2: &evaluator::Evaluator, position_map_2: &position_map::PositionMap) -> () {
+    while !board.is_over() {
+        let next = if board.turn() == board::Turn::First {
+            com::find_best_move(board, depth, evaluator_1, position_map_1, explore)
+        } else {
+            com::find_best_move(board, depth, evaluator_2, position_map_2, explore)
+        };
+        if let com::Move(Some(pos), _) = next {
+            board.play(pos);
+        } else {
+            println!("Unknown error");
+            std::process::exit(1);
+        }
     }
 }
 
