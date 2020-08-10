@@ -282,22 +282,27 @@ fn evaluate(depth: isize) {
             } else {
                 println!("North to play, input 1-{}", board::PIT_NUM);
             }
-            match read_command() {
-                Some(Command::Quit) => {
-                    println!("Thank you for playing");
-                    return ();
-                },
-                Some(Command::Undo) => {
-                    b.undo();
-                },
-                Some(Command::Number(n)) => {
-                    if  n >= board::PIT_NUM + 1 {
-                        println!("{} is invalid number for move", n);
-                    } else if let None = b.play(n - 1) {
-                        println!("{} is invalid move", n);
-                    }
-                },
-                _ => println!("Invalid command"),
+            loop {
+                match read_command() {
+                    Some(Command::Quit) => {
+                        println!("Thank you for playing");
+                        return ();
+                    },
+                    Some(Command::Undo) => {
+                        b.undo();
+                        break;
+                    },
+                    Some(Command::Number(n)) => {
+                        if  n >= board::PIT_NUM + 1 {
+                            println!("{} is invalid number for move", n);
+                        } else if let None = b.play(n - 1) {
+                            println!("{} is invalid move", n);
+                        } else {
+                            break;
+                        }
+                    },
+                    _ => println!("Invalid command"),
+                }    
             }
         }
     }
