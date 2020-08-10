@@ -437,6 +437,7 @@ mod tests {
 
         let result = board.play(5);
 
+        assert_eq!(result, Some(()));
         assert_eq!(board.is_over(), true);
         assert_board(&board, Turn::First, [1, 1], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0]);
     }
