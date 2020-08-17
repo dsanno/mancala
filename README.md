@@ -41,6 +41,7 @@ $ mancala play <depth>
 
 - `1-6`: Sow seeds in a pit (`1` for most left pit, `2` for next to it, etc)
 - `undo` or `u`: Undo move.
+- `reset` or `r`: Reset game.
 - `quit` or `q`: Quit game.
 
 
@@ -65,6 +66,7 @@ $ mancala play <depth>
 
 - `1-6`: Sow seeds in a pit (`1` for most left pit, `2` for next to it, etc)
 - `undo` or `u`: Undo move.
+- `reset` or `r`: Reset board.
 - `quit` or `q`: Quit game.
 
 

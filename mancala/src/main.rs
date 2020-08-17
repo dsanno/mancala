@@ -59,6 +59,7 @@ const HELP_ENDING_FILE: &str = "Ending file path to save";
 
 enum Command {
     Undo,
+    Reset,
     Quit,
     Number(usize),
 }
@@ -223,7 +224,7 @@ fn play(depth: isize) {
                 },
             }
         }
-        loop {
+        'game: loop {
             while b.turn() == player_turn && !b.is_over() {
                 print_board(&b, player_turn);
                 println!("Your turn, input 1-{}", board::PIT_NUM);
@@ -238,6 +239,9 @@ fn play(depth: isize) {
                             b.undo();
                         }
                     },
+                    Some(Command::Reset) => {
+                        break 'game;
+                    }
                     Some(Command::Number(n)) => {
                         if  n >= board::PIT_NUM + 1 {
                             println!("{} is invalid number for move", n);
@@ -339,6 +343,10 @@ fn evaluate(depth: isize) {
                         b.undo();
                         break;
                     },
+                    Some(Command::Reset) => {
+                        b.reset();
+                        break;
+                    }
                     Some(Command::Number(n)) => {
                         if  n >= board::PIT_NUM + 1 {
                             println!("{} is invalid number for move", n);
@@ -560,6 +568,8 @@ fn read_command() -> Option<Command> {
         "quit" => Some(Command::Quit),
         "u" => Some(Command::Undo),
         "undo" => Some(Command::Undo),
+        "r" => Some(Command::Reset),
+        "reset" => Some(Command::Reset),
         s => match s.parse() {
             Ok(n) => Some(Command::Number(n)),
             _ => None,
