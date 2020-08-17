@@ -13,6 +13,7 @@ use mancala::engine::position_map;
 
 const EVALUATION_FILE_PATH: &str = "eval.dat";
 const POSITION_FILE_PATH: &str = "position.dat";
+const ENDING_FILE_PATH: &str = "ending.dat";
 
 const SUB_COMMAND_PLAY: &str = "play";
 const ABOUT_PLAY: &str = "Play with computer";
@@ -26,12 +27,17 @@ const ABOUT_EVALUATE: &str = "Evaluate moves";
 const SUB_COMMAND_COMPARE: &str = "comp";
 const ABOUT_COMPARE: &str = "Compare evaluator parameters";
 
+const SUB_COMMAND_ENDING: &str = "ending";
+const ABOUT_ENDING: &str = "Make ending file";
+
 const ARG_DEPTH: &str = "depth";
 const HELP_DEPTH: &str = "Depth of com player thinking (2-20)";
 const ERROR_DEPTH_TYPE: &str = "Depth must be an integer";
 const ERROR_DEPTH_RANGE: &str = "Depth must be in the range of 2 to 20";
 const MIN_DEPTH: isize = 2;
 const MAX_DEPTH: isize = 20;
+const EXACT_SEED_NUM: isize = 32;
+const EXACT_DEPTH: isize = 100;
 
 const ARG_SELF_PLAY_NUM: &str = "self_play_num";
 const HELP_SELF_PLAY_NUM: &str = "Number of self play";
@@ -44,6 +50,12 @@ const ARG_COMPARE_PARAMETER_FILE_1: &str = "parameter_file_1";
 const HELP_COMPARE_PARAMETER_FILE_1: &str = "Evaluator parameter file 1";
 const ARG_COMPARE_PARAMETER_FILE_2: &str = "parameter_file_2";
 const HELP_COMPARE_PARAMETER_FILE_2: &str = "Evaluator parameter file 2";
+
+const ARG_ENDING_NUM: &str = "ending_num";
+const HELP_ENDING_NUM: &str = "Number of seeds for ending calculation";
+const ERROR_ENDING_NUM_TYPE: &str = "Number of seeds must be integer";
+const ARG_ENDING_FILE: &str = "ending_file";
+const HELP_ENDING_FILE: &str = "Ending file path to save";
 
 enum Command {
     Undo,
@@ -95,6 +107,18 @@ fn main() {
                 .help(HELP_COMPARE_PARAMETER_FILE_2)
                 .required(true)
         );
+    let ending_command = SubCommand::with_name(SUB_COMMAND_ENDING)
+        .about(ABOUT_ENDING)
+        .arg(
+            Arg::with_name(ARG_ENDING_NUM)
+                .help(HELP_ENDING_NUM)
+                .required(true)
+        )
+        .arg(
+            Arg::with_name(ARG_ENDING_FILE)
+                .help(HELP_ENDING_FILE)
+                .required(true)
+        );
 let app = App::new(crate_name!())
         .setting(AppSettings::ArgRequiredElseHelp)
         .version(crate_version!())
@@ -102,7 +126,8 @@ let app = App::new(crate_name!())
         .subcommand(play_command)
         .subcommand(self_command)
         .subcommand(evaluate_command)
-        .subcommand(compare_command);
+        .subcommand(compare_command)
+        .subcommand(ending_command);
 
     let matches = app.get_matches();
     if let Some(ref matches) = matches.subcommand_matches(SUB_COMMAND_PLAY) {
@@ -147,6 +172,13 @@ let app = App::new(crate_name!())
         let parameter_file_1 = matches.value_of(ARG_COMPARE_PARAMETER_FILE_1).unwrap();
         let parameter_file_2 = matches.value_of(ARG_COMPARE_PARAMETER_FILE_2).unwrap();
         compare(depth, parameter_file_1, parameter_file_2);
+    } else if let Some(ref matches) = matches.subcommand_matches(SUB_COMMAND_ENDING) {
+        let seed_num = value_t!(matches.value_of(ARG_ENDING_NUM), isize).unwrap_or_else(|e| {
+            println!("{}", ERROR_ENDING_NUM_TYPE);
+            e.exit();
+        });
+        let ending_file = matches.value_of(ARG_ENDING_FILE).unwrap();
+        make_ending(seed_num, ending_file);
     }
 }
 
@@ -155,6 +187,13 @@ fn play(depth: isize) {
         Ok(position_map) => position_map,
         Err(_) => {
             println!("Warning: cannot load position file");
+            Default::default()
+        },
+    };
+    let ending = match position_map::PositionMap::load(ENDING_FILE_PATH) {
+        Ok(ending) => ending,
+        Err(_) => {
+            println!("Warning: cannot load ending file");
             Default::default()
         },
     };
@@ -213,7 +252,7 @@ fn play(depth: isize) {
             while b.turn() != player_turn && !b.is_over() {
                 print_board(&b, player_turn);
                 println!("Com is thinking");
-                if let com::Move(Some(pos), value) = com::find_best_move(&mut b, depth, &evaluator, &position_map, false) {
+                if let com::Move(Some(pos), value) = com::find_best_move(&mut b, depth, &evaluator, &position_map, &ending, false) {
                     println!("Com plays {}, value is {}", pos + 1, value);
                     if let None = b.play(pos) {
                         println!("Unknown error");
@@ -249,6 +288,13 @@ fn evaluate(depth: isize) {
             Default::default()
         },
     };
+    let ending = match position_map::PositionMap::load(ENDING_FILE_PATH) {
+        Ok(ending) => ending,
+        Err(_) => {
+            println!("Warning: cannot load ending file");
+            Default::default()
+        },
+    };
     let evaluator = match evaluator::Evaluator::load(EVALUATION_FILE_PATH) {
         Ok(evaluator) => evaluator,
         Err(_) => {
@@ -267,7 +313,8 @@ fn evaluate(depth: isize) {
                     if let None = b.play(pos) {
                         continue;
                     }
-                    if let com::Move(Some(_), value) = com::find_best_move(&mut b, depth - 1, &evaluator, &position_map, false) {
+                    if let com::Move(Some(_), value) = com::find_best_move(&mut b, depth - 1, &evaluator,
+                                                                           &position_map, &ending, false) {
                         if b.turn() == turn {
                             println!("{}: {}", pos + 1, value)
                         } else {
@@ -313,6 +360,13 @@ fn self_play(num: usize, depth: isize) {
         Ok(position_map) => position_map,
         Err(_) => Default::default(),
     };
+    let ending = match position_map::PositionMap::load(ENDING_FILE_PATH) {
+        Ok(ending) => ending,
+        Err(_) => {
+            println!("Warning: cannot load ending file");
+            Default::default()
+        },
+    };
     let evaluator = match evaluator::Evaluator::load(EVALUATION_FILE_PATH) {
         Ok(evaluator) => evaluator,
         Err(_) => {
@@ -323,7 +377,13 @@ fn self_play(num: usize, depth: isize) {
     for i in 0..num {
         let mut b: board::Board = Default::default();
         while !b.is_over() {
-            if let com::Move(Some(pos), _) = com::find_best_move(&mut b, depth, &evaluator, &position_map, true) {
+            let play_depth = if b.store(board::Turn::First) + b.store(board::Turn::Second) >= EXACT_SEED_NUM {
+                EXACT_DEPTH
+            } else {
+                depth
+            };
+            if let com::Move(Some(pos), _) = com::find_best_move(&mut b, play_depth, &evaluator, &position_map,
+                                                                 &ending, true) {
                 b.play(pos);
             } else {
                 println!("Unknown error");
@@ -331,7 +391,7 @@ fn self_play(num: usize, depth: isize) {
             }
         }
         let value = (b.store(board::Turn::First) - b.store(board::Turn::Second)) * evaluator::VALUE_PER_SEED;
-        for _ in 0..6 {
+        while b.store(board::Turn::First) + b.store(board::Turn::Second) >= EXACT_SEED_NUM {
             b.undo();
         }
         loop {
@@ -367,6 +427,13 @@ fn compare(depth: isize, parameter_file_1: &str, parameter_file_2: &str) {
     let mut board: board::Board = Default::default();
 
     let position_map: position_map::PositionMap = Default::default();
+    let ending = match position_map::PositionMap::load(ENDING_FILE_PATH) {
+        Ok(ending) => ending,
+        Err(_) => {
+            println!("Warning: cannot load ending file");
+            Default::default()
+        },
+    };
     let evaluator_1 = match evaluator::Evaluator::load(parameter_file_1) {
         Ok(evaluator) => evaluator,
         Err(_) => {
@@ -393,13 +460,13 @@ fn compare(depth: isize, parameter_file_1: &str, parameter_file_2: &str) {
             second_seeds[j / board::PIT_NUM] += 1;
         }
         board.reset_with_seeds(first_seeds, second_seeds);
-        self_play_one(&mut board, depth, false, &evaluator_1, &position_map, &evaluator_2, &position_map);
+        self_play_one(&mut board, depth, false, &evaluator_1, &position_map, &evaluator_2, &position_map, &ending);
         let mut score = board.store(board::Turn::First) - board.store(board::Turn::Second);
         println!("{}-1: {}", play_count + 1, board.store(board::Turn::First) - board.store(board::Turn::Second));
         board.reset_with_seeds(first_seeds, second_seeds);
-        self_play_one(&mut board, depth, false, &evaluator_2, &position_map, &evaluator_1, &position_map);
+        self_play_one(&mut board, depth, false, &evaluator_2, &position_map, &evaluator_1, &position_map, &ending);
         score += board.store(board::Turn::Second) - board.store(board::Turn::First);
-        println!("{}-1: {}", play_count + 1, board.store(board::Turn::Second) - board.store(board::Turn::First));
+        println!("{}-2: {}", play_count + 1, board.store(board::Turn::Second) - board.store(board::Turn::First));
         if score > 0 {
             win_sum += 2;
         } else if score == 0 {
@@ -414,12 +481,13 @@ fn compare(depth: isize, parameter_file_1: &str, parameter_file_2: &str) {
 
 fn self_play_one(board: &mut board::Board, depth: isize, explore: bool,
                  evaluator_1: &evaluator::Evaluator, position_map_1: &position_map::PositionMap,
-                 evaluator_2: &evaluator::Evaluator, position_map_2: &position_map::PositionMap) -> () {
+                 evaluator_2: &evaluator::Evaluator, position_map_2: &position_map::PositionMap,
+                 ending: &position_map::PositionMap) -> () {
     while !board.is_over() {
         let next = if board.turn() == board::Turn::First {
-            com::find_best_move(board, depth, evaluator_1, position_map_1, explore)
+            com::find_best_move(board, depth, evaluator_1, position_map_1, ending, explore)
         } else {
-            com::find_best_move(board, depth, evaluator_2, position_map_2, explore)
+            com::find_best_move(board, depth, evaluator_2, position_map_2, ending, explore)
         };
         if let com::Move(Some(pos), _) = next {
             board.play(pos);
@@ -429,6 +497,58 @@ fn self_play_one(board: &mut board::Board, depth: isize, explore: bool,
         }
     }
 }
+
+fn make_ending(seed_num: isize, ending_file: &str) {
+    let mut board: board::Board = Default::default();
+    let evaluator: evaluator::Evaluator = evaluator::Evaluator::new();
+    let mut ending: position_map::PositionMap = Default::default();
+    let empty_map: position_map::PositionMap = Default::default();
+    let mut seeds: [isize; board::PIT_NUM * 2] = [0; board::PIT_NUM * 2];
+
+    for max in 2..(seed_num + 1) {
+        println!("calculationg for number of seeds: {}", max);
+        let mut i = 0;
+        let mut remain = max;
+        let mut is_over = false;
+        while !is_over {
+            i += 1;
+            if remain == 0 || i == seeds.len() - 1 {
+                seeds[i] = remain;
+                let mut first_seeds = [0; board::PIT_NUM];
+                let mut second_seeds = [0; board::PIT_NUM];
+                first_seeds.copy_from_slice(&seeds[..board::PIT_NUM]);
+                second_seeds.copy_from_slice(&seeds[board::PIT_NUM..]);
+                if first_seeds.iter().sum::<isize>() > 0 && second_seeds.iter().sum::<isize>() > 0 {
+                    board.reset_with_seeds(first_seeds, second_seeds);
+                    let com::Move(_, value) = com::find_best_move(&mut board, 1000, &evaluator, &empty_map, &ending,
+                                                                  false);
+                    ending.insert(&board, value);
+                }
+                seeds[i] = 0;
+                loop {
+                    if i == 0 {
+                        is_over = true;
+                        break;
+                    }
+                    i -= 1;
+                    if remain > 0 {
+                        remain -= 1;
+                        seeds[i] += 1;
+                        break;
+                    } else {
+                        remain += seeds[i];
+                        seeds[i] = 0;
+                    }
+                }
+            }
+        }
+    }
+    match ending.save(ending_file) {
+        Ok(_) => (),
+        Err(_) => println!("Cannot save ending map"),
+    }
+}
+
 
 fn read_command() -> Option<Command> {
     let mut line = String::new();

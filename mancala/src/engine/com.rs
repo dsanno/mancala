@@ -12,7 +12,8 @@ pub struct Move(pub Option<usize>, pub isize);
 
 
 pub fn find_best_move(board: &mut board::Board, depth: isize, evaluator: &evaluator::Evaluator,
-                      position_map: &position_map::PositionMap, explore: bool) -> Move {
+                      position_map: &position_map::PositionMap, ending: &position_map::PositionMap, explore: bool)
+                      -> Move {
     let turn = board.turn();
     let opponent = board::opponent_turn(turn);
     let log_total_size = (position_map.len() as f32).ln();
@@ -48,6 +49,12 @@ pub fn find_best_move(board: &mut board::Board, depth: isize, evaluator: &evalua
         }  else {
             let v = if board.is_over() {
                 (board.store(turn) - board.store(opponent)) * evaluator::VALUE_PER_SEED
+            } else if let Some(position_value) = ending.get(&board) {
+                if board.turn() == turn {
+                    position_value.value as isize
+                } else {
+                    -position_value.value as isize
+                }
             } else if depth == 1 {
                 if board.turn() == turn {
                     evaluator.evaluate(&board)
@@ -56,10 +63,10 @@ pub fn find_best_move(board: &mut board::Board, depth: isize, evaluator: &evalua
                 }
             } else {
                 if board.turn() == turn {
-                    let Move(_, v) = search(board, depth - 1, lower, upper, evaluator);
+                    let Move(_, v) = search(board, depth - 1, lower, upper, evaluator, ending);
                     v
                 } else {
-                    let Move(_, v) = search(board, depth - 1, -upper, -lower, evaluator);
+                    let Move(_, v) = search(board, depth - 1, -upper, -lower, evaluator, ending);
                     -v
                 }
             };
@@ -83,7 +90,8 @@ pub fn find_best_move(board: &mut board::Board, depth: isize, evaluator: &evalua
 }
 
 
-fn search(board: &mut board::Board, depth: isize, lower: isize, upper: isize, evaluator: &evaluator::Evaluator) -> Move {
+fn search(board: &mut board::Board, depth: isize, lower: isize, upper: isize, evaluator: &evaluator::Evaluator,
+          ending: &position_map::PositionMap) -> Move {
     let turn = board.turn();
     let opponent = board::opponent_turn(turn);
     let mut max_value = -MAX_VALUE;
@@ -121,12 +129,18 @@ fn search(board: &mut board::Board, depth: isize, lower: isize, upper: isize, ev
                     } else {
                         -v
                     }
+                } else if let Some(position_value) = ending.get(&board) {
+                    if board.turn() == turn {
+                        position_value.value as isize
+                    } else {
+                        -position_value.value as isize
+                    }
                 } else {
                     if board.turn() == turn {
-                        let Move(_, v) = search(board, depth - 1, lower_value, upper, evaluator);
+                        let Move(_, v) = search(board, depth - 1, lower_value, upper, evaluator, ending);
                         v
                     } else {
-                        let Move(_, v) = search(board, depth - 1, -upper, -lower_value, evaluator);
+                        let Move(_, v) = search(board, depth - 1, -upper, -lower_value, evaluator, ending);
                         -v
                     }
                 };
